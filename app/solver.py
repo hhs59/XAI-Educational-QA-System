@@ -14,7 +14,7 @@
 
 def solve_logic(question: str, premises_nl: list[str] | None):
     return {
-        'answer': 'this is models answer for logic question',
+        'answer': 'No',
         'explanation': 'this is models explanation for logic question'
     }
 
@@ -25,14 +25,15 @@ def solve_physics(question: str):
     }
 
 def solve(question, query_type=None, premises_nl=None):
-    if query_type.lower() == 'logic' or premises_nl:
+    query_type = (query_type or '').lower()
+    if query_type == 'logic' or premises_nl:
         return solve_logic(question, premises_nl)
-    elif query_type.lower() == 'physics':
+    elif query_type == 'physics':
         return solve_physics(question)
     else:
         return {
-            'answer': 'Do not know yet',
-            'explanation': 'Do not know yet',
+            'answer': 'No',
+            'explanation': 'Baseline: always predicts No for logic questions',
             'confidence': '0.0'
         }
 
