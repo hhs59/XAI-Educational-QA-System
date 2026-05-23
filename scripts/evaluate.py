@@ -12,10 +12,13 @@ with LOGIC_PATH.open('r', encoding='utf-8') as logic:
     records = json.load(logic)
 
 
+logic_total = 0
+logic_correct = 0
+logic_unknown = 0
 
-total = 0
-correct = 0
-unknown = 0
+physics_total = 0
+physics_correct = 0
+physics_unknown = 0
 
 for record in records:
     premises = record['premises-NL']
@@ -30,18 +33,18 @@ for record in records:
         predicted_answer = prediction.get('answer', '')
         is_correct = predicted_answer.strip() == gold_answer.strip()
 
-        total += 1
+        logic_total += 1
         if is_correct:
-            correct += 1
+            logic_correct += 1
         if predicted_answer.lower().strip() in {'unknown', 'do not know yet'}:
-            unknown += 1
+            logic_unknown += 1
 
 print(f"""
     Logic:
-        Total: {total},
-        Correct: {correct},
-        Unknown: {unknown},
-        Accuracy:, {correct/total*100}
+        Total: {logic_total},
+        Correct: {logic_correct},
+        Unknown: {logic_unknown},
+        Accuracy: {logic_correct / logic_total *100:.2f}%
     """)
 
 # Physics
@@ -60,17 +63,17 @@ with PHYSICS_PATH.open('r', encoding='utf-8') as physics:
         predicted_answer = prediction.get('answer', '')
         is_correct = predicted_answer.strip() == gold_answer.strip()
 
-        total += 1
+        physics_total += 1
         if is_correct:
-            correct += 1
+            physics_correct += 1
         if predicted_answer.lower().strip() in {'unknown', 'do not know yet'}:
-            unknown += 1
+            physics_unknown += 1
 
 
 print(f"""
-    Locgic:
-        Total: {total},
-        Correct: {correct},
-        Unknown: {unknown},
-        Accuracy:, {correct/total*100}
+    Physics:
+        Total: {physics_total},
+        Correct: {physics_correct},
+        Unknown: {physics_unknown},
+        Accuracy: {physics_correct / physics_total *100:.2f}%
     """)
