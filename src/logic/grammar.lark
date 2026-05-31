@@ -1,0 +1,83 @@
+// FOL Grammar — symbol format (∀, ∃, →, ∧, ∨, ¬)
+// ASCII format (ForAll, Exists, ...) is preprocessed before parsing.
+
+?start: formula
+
+?formula: implication
+
+// Right-associative: P → Q → R  means  P → (Q → R)
+?implication: disjunction IMPLIES implication  -> implies
+            | disjunction
+
+// Left-associative
+?disjunction: disjunction OR conjunction       -> or_
+            | conjunction
+
+?conjunction: conjunction AND unary            -> and_
+            | unary
+
+?unary: NOT unary                              -> not_
+      | atomic
+
+?atomic: predicate
+       | quantified
+       | comparison
+       | "(" formula ")"
+       | bare_term                             // standalone variable or constant
+
+bare_term: term                                // "h" appears alone as atomic formula
+
+// Predicates with args: WT(x), has_degree(John, PhD)
+predicate: CNAME "(" args ")"   -> predicate
+
+args: term ("," term)*
+
+?term: CNAME                  -> term_ref
+     | NUMBER                 -> term_number
+     | QUOTED_STRING          -> term_string
+
+// Quantifiers — ? prefix prevents wrapper Tree
+?quantified: forall | exists
+
+forall: FORALL CNAME formula    -> forall_node
+exists: EXISTS CNAME formula    -> exists_node
+
+// Comparisons — two forms: predicate(args) OP term | term OP term
+comparison: pred_comp | term_comp
+
+pred_comp: predicate GTE term  -> gte
+         | predicate LTE term  -> lte
+         | predicate EQ  term  -> eq
+         | predicate NEQ term  -> neq
+         | predicate GT  term  -> gt
+         | predicate LT  term  -> lt
+
+term_comp: term GTE term  -> gte
+         | term LTE term  -> lte
+         | term EQ  term  -> eq
+         | term NEQ term  -> neq
+         | term GT  term  -> gt
+         | term LT  term  -> lt
+
+// --- Terminals ---
+FORALL: "∀"
+EXISTS: "∃"
+AND:    "∧"
+OR:     "∨"
+NOT:    "¬"
+IMPLIES: "→" | "->" | "=>"
+
+GTE: "≥" | ">="
+LTE: "≤" | "<="
+GT:  ">"  | ">"
+LT:  "<"  | "<"
+EQ:  "="
+NEQ: "≠" | "!="
+
+// Single-quoted strings appear as predicate args: study(s, 'PoliticalTheory')
+QUOTED_STRING: "'" /[^']*/ "'"
+
+%import common.CNAME
+%import common.NUMBER
+%import common.WS
+%ignore WS
