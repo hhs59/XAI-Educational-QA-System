@@ -48,6 +48,12 @@ class Implies(Expr):
 
 
 @dataclass
+class Iff(Expr):
+    left: Expr
+    right: Expr
+
+
+@dataclass
 class ForAll(Expr):
     variable: str
     body: Expr

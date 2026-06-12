@@ -3,7 +3,10 @@
 
 ?start: formula
 
-?formula: implication
+?formula: iff
+
+?iff: implication IFF iff  -> iff_
+    | implication
 
 // Right-associative: P → Q → R  means  P → (Q → R)
 ?implication: disjunction IMPLIES implication  -> implies
@@ -25,7 +28,7 @@
        | "(" formula ")"
        | bare_term                             // standalone variable or constant
 
-bare_term: term                                // "h" appears alone as atomic formula
+?bare_term: term                                // "h" appears alone as atomic formula
 
 // Predicates with args: WT(x), has_degree(John, PhD)
 predicate: CNAME "(" args ")"   -> predicate
@@ -43,7 +46,7 @@ forall: FORALL CNAME formula    -> forall_node
 exists: EXISTS CNAME formula    -> exists_node
 
 // Comparisons — two forms: predicate(args) OP term | term OP term
-comparison: pred_comp | term_comp
+?comparison: pred_comp | term_comp
 
 pred_comp: predicate GTE term  -> gte
          | predicate LTE term  -> lte
@@ -66,11 +69,12 @@ AND:    "∧"
 OR:     "∨"
 NOT:    "¬"
 IMPLIES: "→" | "->" | "=>"
+IFF: "↔" | "<->" | "<=>"
 
 GTE: "≥" | ">="
 LTE: "≤" | "<="
-GT:  ">"  | ">"
-LT:  "<"  | "<"
+GT:  ">"
+LT:  "<"
 EQ:  "="
 NEQ: "≠" | "!="
 

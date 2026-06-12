@@ -14,6 +14,7 @@ from src.logic.nodes import (
     ForAll,
     Gt,
     Gte,
+    Iff,
     Implies,
     Lt,
     Lte,
@@ -36,6 +37,7 @@ def _preprocess(text: str) -> str:
     text = re.sub(r"\band\b", "∧", text)
     text = re.sub(r"\bor\b", "∨", text)
     text = re.sub(r"\bnot\b", "¬", text)
+    text = re.sub(r"\biff\b", "↔", text)
     return text
 
 
@@ -74,6 +76,10 @@ class FOLTransformer(Transformer):
         left, _op, right = children
         return Implies(left, right)
 
+    def iff_(self, children: list) -> Iff:
+        left, _op, right = children
+        return Iff(left, right)
+
     def or_(self, children: list) -> Or:
         left, _op, right = children
         return Or(left, right)
@@ -88,7 +94,7 @@ class FOLTransformer(Transformer):
 
     def predicate(self, children: list) -> Predicate:
         name = str(children[0])
-        args = children[1]  # already transformed
+        args = children[1]
         return Predicate(name, args)
 
     def args(self, children: list) -> list[Expr]:
