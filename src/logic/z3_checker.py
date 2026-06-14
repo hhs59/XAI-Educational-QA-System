@@ -7,6 +7,23 @@ from src.logic.z3_encoder import Z3Context, encode_expr, encode_premises
 
 
 def check_entailment(premises: list[Expr], query: Expr) -> dict:
+    """Check if the query is entailed by the premises.
+
+    Method: add premises AND NOT(query) to the solver.
+    If unsatisfiable → query MUST be true (entailed).
+    If satisfiable → query is NOT guaranteed (not entailed).
+
+    Args:
+        premises: List of AST nodes representing the premises.
+        query: AST node representing the query to check.
+
+    Returns:
+        dict with:
+          - "entailed": True if query follows, False otherwise.
+          - "status": "unsat" (entailed) or "sat" (not entailed).
+          - "counterexample": If not entailed, a dict showing a model
+            where premises are true but query is false.
+    """
     ctx = Z3Context()
     for p in premises:
         from src.logic.z3_encoder import _collect_numeric_predicates

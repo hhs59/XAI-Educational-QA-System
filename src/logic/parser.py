@@ -147,6 +147,20 @@ class FOLTransformer(Transformer):
 
 
 def parse_fol(text: str) -> Expr:
+    """Parse a first-order logic formula string into an AST.
+
+    Supports both Unicode symbols (∀, ∃, →, ∧, ∨, ¬, ↔) and ASCII
+    equivalents (ForAll, Exists, ->, and, or, not, iff).
+
+    Args:
+        text: FOL formula string, e.g. "∀x (Student(x) → Enrolled(x))".
+
+    Returns:
+        Root AST node (one of the Expr subclasses in nodes.py).
+
+    Raises:
+        lark.exceptions.UnexpectedToken: If the formula has syntax errors.
+    """
     preprocessed = _preprocess(text)
     tree = _parser.parse(preprocessed)
     return FOLTransformer().transform(tree)

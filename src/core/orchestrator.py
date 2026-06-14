@@ -24,21 +24,13 @@ def _split_question_and_choices(question: str) -> tuple[str, list[str] | None]:
 
 def solve(
     question: str,
-    query_type: str | None = None,
     premises_nl: list[str] | None = None,
     premises_fol: list[str] | None = None,
 ) -> dict:
-    query_type = (query_type or "").lower()
-
-    if query_type == "logic" or premises_nl:
+    if premises_nl:
         return _solve_logic(question, premises_nl, premises_fol)
-    elif query_type == "physics":
-        return _solve_physics(question)
     else:
-        return {
-            "answer": "Unknown",
-            "explanation": "Could not determine question type. Provide query_type or premises.",
-        }
+        return _solve_physics(question)
 
 
 def _solve_logic(
@@ -47,6 +39,7 @@ def _solve_logic(
     premises_fol: list[str] | None = None,
 ) -> dict:
     from src.reasoner.answer_question import answer_question
+    from src.explanation.generator import generate_explanation
 
     stem, choices = _split_question_and_choices(question)
 
@@ -56,6 +49,7 @@ def _solve_logic(
             "choice": "",
             "reasoning": "No premises provided for logic question.",
             "idx": [],
+            "explanation": "No premises provided for logic question.",
         }
 
     if not choices:
@@ -68,16 +62,32 @@ def _solve_logic(
         premises_fol=premises_fol,
     )
 
+    explanation = generate_explanation(
+        premises=premises_nl,
+        question=stem,
+        answer=result.get("answer", "Unknown"),
+        choice=result.get("choice", ""),
+        reasoning=result.get("reasoning", ""),
+        idx=result.get("idx", []),
+    )
+
     return {
         "answer": result.get("answer", "Unknown"),
         "choice": result.get("choice", ""),
         "reasoning": result.get("reasoning", ""),
         "idx": result.get("idx", []),
-        "explanation": result.get("reasoning", ""),
+        "explanation": explanation,
+        "z3_verified": result.get("z3_verified", False),
+        "z3_note": result.get("z3_note", ""),
     }
 
 
 def _solve_physics(question: str) -> dict:
     from src.physics.solver import solve_physics
 
-    return solve_physics(question)
+    result = solve_physics(question)
+
+    if "explanation" not in result:
+        result["explanation"] = result.get("reasoning", "")
+
+    return result

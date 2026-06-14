@@ -103,6 +103,23 @@ def encode_premises(premises: list[Expr]) -> tuple[z3.Solver, Z3Context]:
 
 
 def encode_expr(expr: Expr, ctx: Z3Context | None = None) -> z3.ExprRef:
+    """Encode an AST node into a Z3 expression.
+
+    Handles all 16 node types: Constant, Variable, Predicate, Not, And, Or,
+    Implies, Iff, ForAll, Exists, Eq, Neq, Gt, Gte, Lt, Lte.
+
+    Numeric constants are encoded as IntVal/RealVal. Predicates marked as
+    numeric (via _collect_numeric_predicates) return IntSort and are wrapped
+    with != 0 when used as boolean conditions.
+
+    Args:
+        expr: AST node to encode.
+        ctx: Z3 context managing sorts, functions, and constants.
+            Created if not provided.
+
+    Returns:
+        Z3 expression (BoolRef for formulas, ArithRef for terms).
+    """
     if ctx is None:
         ctx = Z3Context()
     if isinstance(expr, Constant):

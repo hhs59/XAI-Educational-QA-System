@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from collections import Counter
 from string import ascii_uppercase
 
 import z3
@@ -22,7 +23,25 @@ def answer_logic_direct(
     *,
     premises_fol: list[str] | None = None,
     max_retries: int = 1,
-) -> dict[str, str | list[int]]:
+) -> dict[str, str | list[int] | bool]:
+    """Answer a multiple-choice logic question with LLM reasoning + Z3 verification.
+
+    Pipeline:
+        1. Filter premises for relevance (if >5 premises)
+        2. Run LLM 3 times, take majority vote on answer
+        3. Verify with Z3 (entailment check, fall back to consistency)
+        4. If Z3 rejects, retry with feedback
+
+    Args:
+        premises: List of premise strings (natural language).
+        question: Natural language question.
+        choices: Multiple-choice answer options.
+        premises_fol: Optional FOL premises for Z3 verification.
+        max_retries: Number of retries for invalid JSON responses.
+
+    Returns:
+        dict with keys: answer, choice, reasoning, idx, z3_verified, z3_note.
+    """
     if not choices:
         return {
             "answer": "Unknown",
@@ -31,6 +50,110 @@ def answer_logic_direct(
             "idx": [],
         }
 
+    filtered_premises, filtered_indices = _filter_premises(premises, question, choices)
+
+    votes: list[dict] = []
+    for _ in range(3):
+        result = _single_attempt(filtered_premises, question, choices, max_retries)
+        votes.append(result)
+
+    parsed = _majority_vote(votes, choices)
+
+    if parsed["answer"] == "Unknown":
+        return {
+            "answer": "Unknown",
+            "choice": "",
+            "reasoning": "Could not parse a valid answer from the LLM response.",
+            "idx": [],
+            "z3_verified": False,
+            "z3_note": "LLM failed to produce valid response.",
+        }
+
+    original_idx = [filtered_indices[i - 1] for i in parsed.get("idx", []) if 1 <= i <= len(filtered_indices)]
+    parsed["idx"] = original_idx
+
+    z3_premises = premises_fol if premises_fol else premises
+    z3_result = _verify_with_z3(z3_premises, parsed["idx"], answer_choice=parsed.get("choice"))
+    parsed["z3_verified"] = z3_result["verified"]
+    parsed["z3_note"] = z3_result["note"]
+
+    if not z3_result["verified"]:
+        retry_result = _retry_with_feedback(
+            filtered_premises, question, choices, parsed, z3_result, max_retries
+        )
+        if retry_result and retry_result["answer"] != "Unknown":
+            retry_original_idx = [filtered_indices[i - 1] for i in retry_result.get("idx", []) if 1 <= i <= len(filtered_indices)]
+            retry_result["idx"] = retry_original_idx
+            return retry_result
+
+    return parsed
+
+
+def _filter_premises(
+    premises: list[str],
+    question: str,
+    choices: list[str],
+) -> tuple[list[str], list[int]]:
+    if len(premises) <= 5:
+        return premises, list(range(1, len(premises) + 1))
+
+    premises_text = "\n".join(f"{i}. {p}" for i, p in enumerate(premises, start=1))
+    choices_text = "\n".join(f"{ascii_uppercase[i]}. {c}" for i, c in enumerate(choices))
+
+    schema = {
+        "name": "premise_filter",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "relevant": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                },
+            },
+            "required": ["relevant"],
+            "additionalProperties": False,
+        },
+    }
+
+    prompt = f"""Premises:
+{premises_text}
+
+Question: {question}
+Choices:
+{choices_text}
+
+Which premises are needed to answer this question? List ONLY the 1-based indices of premises that are directly relevant. Include premises that:
+- Define rules or conditions mentioned in the question or choices
+- Provide facts about entities mentioned in the question
+- Are needed to chain logical deductions
+
+Do NOT include premises that are irrelevant to the question.
+Return ONLY JSON: {{"relevant": [1, 3, 5]}}"""
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": prompt}]
+
+    try:
+        response = call_llm(messages, schema=schema)
+        data = json.loads(response)
+        relevant = data.get("relevant", [])
+        if isinstance(relevant, list) and relevant:
+            indices = sorted(set(int(x) for x in relevant if isinstance(x, (int, float)) and 1 <= x <= len(premises)))
+            if indices:
+                filtered = [premises[i - 1] for i in indices]
+                return filtered, indices
+    except Exception as e:
+        logger.debug("Premise filtering failed: %s", e)
+
+    return premises, list(range(1, len(premises) + 1))
+
+
+def _single_attempt(
+    premises: list[str],
+    question: str,
+    choices: list[str],
+    max_retries: int,
+) -> dict:
     valid_letters = [ascii_uppercase[i] for i in range(len(choices))]
     answer_enum = valid_letters + ["Unknown"]
     schema = {
@@ -52,80 +175,95 @@ def answer_logic_direct(
     }
 
     messages = _build_direct_prompt(premises, question, choices)
-    z3_premises = premises_fol if premises_fol else premises
-    max_z3_retries = 1
 
-    for z3_attempt in range(max_z3_retries + 1):
-        parsed = None
-        for json_attempt in range(max_retries + 1):
-            response_text = call_llm(messages, schema=schema)
-            parsed = _parse_direct_response(response_text, choices)
+    for attempt in range(max_retries + 1):
+        response_text = call_llm(messages, schema=schema)
+        parsed = _parse_direct_response(response_text, choices)
 
-            if parsed["answer"] != "Unknown":
-                break
-
-            logger.warning(
-                "Invalid direct-answer JSON from LLM (attempt %d): %s",
-                json_attempt + 1,
-                response_text[:200],
-            )
-
-            retry_messages: list[ChatCompletionMessageParam] = [
-                {"role": "assistant", "content": response_text},
-                {
-                    "role": "user",
-                    "content": (
-                        "Your previous response was not valid JSON or did not contain "
-                        "a valid answer letter. Return ONLY valid JSON like: "
-                        '{"answer": "A", "reasoning": "..."}. '
-                        'If no option follows, use {"answer": "Unknown", "reasoning": "..."}.'  # noqa: E501
-                    ),
-                },
-            ]
-            messages = messages + retry_messages
-
-        if parsed is None or parsed["answer"] == "Unknown":
-            return {
-                "answer": "Unknown",
-                "choice": "",
-                "reasoning": "Could not parse a valid answer from the LLM response.",
-                "idx": [],
-                "z3_verified": False,
-                "z3_note": "LLM failed to produce valid response.",
-            }
-
-        z3_result = _verify_with_z3(
-            z3_premises, parsed["idx"], answer_choice=parsed.get("choice")
-        )
-        parsed["z3_verified"] = z3_result["verified"]
-        parsed["z3_note"] = z3_result["note"]
-
-        if z3_result["verified"] or z3_attempt >= max_z3_retries:
+        if parsed["answer"] != "Unknown":
             return parsed
 
-        logger.info(
-            "Z3 rejected answer %s (attempt %d/%d): %s",
-            parsed["answer"],
-            z3_attempt + 1,
-            max_z3_retries,
-            z3_result["note"],
-        )
-
-        feedback = (
-            f"Your previous answer '{parsed['answer']}' was checked against the "
-            f"premises using formal logic verification and was found to be NOT "
-            f"guaranteed by the premises. Reason: {z3_result['note']}\n\n"
-            f"Reconsider your answer. Carefully re-examine each premise and each "
-            f"choice. Only choose an answer that LOGICALLY FOLLOWS from the premises.\n\n"
-            f'Return ONLY JSON: {{"answer": "A/B/C/D/Unknown", "reasoning": "...", "idx": [...]}}'
-        )
-
+        logger.warning("Invalid JSON (attempt %d): %s", attempt + 1, response_text[:200])
         messages = messages + [
             {"role": "assistant", "content": response_text},
-            {"role": "user", "content": feedback},
+            {
+                "role": "user",
+                "content": (
+                    "Your previous response was not valid JSON. Return ONLY valid JSON like: "
+                    '{"answer": "A", "reasoning": "...", "idx": [1, 2]}'
+                ),
+            },
         ]
 
-    return parsed
+    return {"answer": "Unknown", "choice": "", "reasoning": "", "idx": []}
+
+
+def _majority_vote(votes: list[dict], choices: list[str]) -> dict:
+    valid_votes = [v for v in votes if v.get("answer") != "Unknown"]
+    if not valid_votes:
+        return votes[0] if votes else {"answer": "Unknown", "choice": "", "reasoning": "", "idx": []}
+
+    answer_counts = Counter(v["answer"] for v in valid_votes)
+    best_answer = answer_counts.most_common(1)[0][0]
+
+    for v in valid_votes:
+        if v["answer"] == best_answer:
+            return v
+
+    return valid_votes[0]
+
+
+def _retry_with_feedback(
+    premises: list[str],
+    question: str,
+    choices: list[str],
+    previous: dict,
+    z3_result: dict,
+    max_retries: int,
+) -> dict | None:
+    valid_letters = [ascii_uppercase[i] for i in range(len(choices))]
+    answer_enum = valid_letters + ["Unknown"]
+    schema = {
+        "name": "logic_answer",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string", "enum": answer_enum},
+                "reasoning": {"type": "string"},
+                "idx": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                },
+            },
+            "required": ["answer", "reasoning", "idx"],
+            "additionalProperties": False,
+        },
+    }
+
+    messages = _build_direct_prompt(premises, question, choices)
+
+    other_choices = [f"{l}. {choices[ascii_uppercase.index(l)]}" for l in valid_letters if l != previous["answer"]]
+    feedback = (
+        f"Your answer '{previous['answer']}' was NOT supported by the premises.\n"
+        f"Reason: {z3_result['note']}\n\n"
+        f"The other choices are:\n" + "\n".join(other_choices) + "\n\n"
+        f"Re-examine the premises carefully. Which choice LOGICALLY FOLLOWS?\n"
+        f'Return ONLY JSON: {{"answer": "A/B/C/D/Unknown", "reasoning": "...", "idx": [...]}}'
+    )
+
+    messages = messages + [
+        {"role": "user", "content": feedback},
+    ]
+
+    for attempt in range(max_retries + 1):
+        response_text = call_llm(messages, schema=schema)
+        parsed = _parse_direct_response(response_text, choices)
+
+        if parsed["answer"] != "Unknown":
+            return parsed
+
+    return None
 
 
 def _build_direct_prompt(
@@ -148,16 +286,21 @@ Question:
 Choices:
 {choices_text}
 
-Reasoning steps:
-1. For each choice, identify which premises (by number) are needed to prove or disprove it.
-2. A choice is supported if it LOGICALLY FOLLOWS from the premises using rules like modus ponens, modus tollens, hypothetical syllogism, disjunctive syllogism.
-3. If multiple choices are supported, pick the one that requires the fewest premises.
-4. If no choice follows from the premises, answer Unknown.
+How to solve:
+1. Read each premise carefully. Understand what it says.
+2. For each choice, check if it follows from the premises using logical rules:
+   - Modus ponens: If P→Q and P is true, then Q is true.
+   - Modus tollens: If P→Q and Q is false, then P is false.
+   - Hypothetical syllogism: If P→Q and Q→R, then P→R.
+   - Disjunctive syllogism: If P∨Q and P is false, then Q is true.
+   - Biconditional: P↔Q means P→Q AND Q→P.
+3. The answer is the choice that MUST be true given the premises.
+4. If multiple choices are true, pick the one that requires the fewest premises.
+5. If no choice follows, answer Unknown.
 
-In your reasoning, cite each premise you use (e.g. "From Premise 3: ...").
-The idx field must contain ONLY the premises you actually used to derive your answer (1-based indices).
-Return ONLY JSON in this format:
-{{"answer": "A/B/C/D/Unknown", "reasoning": "step-by-step logical chain citing premises", "idx": [1, 3]}}"""
+The idx field must contain ONLY the premises you used in your deduction (1-based indices).
+Return ONLY JSON:
+{{"answer": "A/B/C/D/Unknown", "reasoning": "step-by-step deduction citing premises", "idx": [1, 3]}}"""
 
     return [{"role": "user", "content": user_prompt}]
 
@@ -410,7 +553,7 @@ def answer_with_z3(
     premises_fol: list[str],
     question: str,
     choices: list[str],
-) -> dict[str, str | list[int]]:
+) -> dict[str, str | list[int] | bool]:
     if not choices:
         return {
             "answer": "Unknown",

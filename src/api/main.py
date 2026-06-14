@@ -10,7 +10,6 @@ app = FastAPI()
 def predict(request: PredictRequest):
     return solve(
         question=request.question,
-        query_type=request.type,
         premises_nl=request.premises_NL,
         premises_fol=request.premises_FOL,
     )
