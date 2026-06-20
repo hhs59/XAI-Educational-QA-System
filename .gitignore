@@ -6,9 +6,7 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
-env/
 .env
-.env.*
 
 # Local generated outputs
 *.log
@@ -20,3 +18,4 @@ env/
 
 
 data/
+tests/

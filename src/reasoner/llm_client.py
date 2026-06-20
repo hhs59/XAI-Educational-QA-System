@@ -12,16 +12,6 @@ def call_llm(
     messages: list[ChatCompletionMessageParam],
     schema: dict[str, Any] | None = None,
 ) -> str:
-    """Call MiMo LLM with optional structured output.
-
-    Args:
-        messages: Chat messages.
-        schema: If provided, forces the model to return JSON matching this schema.
-            Should be a dict with 'name', 'strict', and 'schema' keys.
-
-    Returns:
-        Model response as a string.
-    """
     api_key = os.getenv("API_KEY")
     if not api_key:
         raise ValueError("API_KEY not set in environment")

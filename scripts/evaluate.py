@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from src.core.orchestrator import solve
+from src.physics.solver import answers_match
 
 LOGIC_PATH = Path(
     "data/Logic_Based_Educational_Queries_Text_Only/Logic_Based_Educational_Queries.json"
@@ -81,7 +82,7 @@ with PHYSICS_PATH.open("r", encoding="utf-8") as physics:
         prediction = solve(question=question)
 
         predicted_answer = prediction.get("answer", "")
-        is_correct = predicted_answer.strip() == gold_answer.strip()
+        is_correct = answers_match(predicted_answer, gold_answer)
 
         physics_total += 1
         if is_correct:

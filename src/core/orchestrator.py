@@ -77,8 +77,6 @@ def _solve_logic(
         "reasoning": result.get("reasoning", ""),
         "idx": result.get("idx", []),
         "explanation": explanation,
-        "z3_verified": result.get("z3_verified", False),
-        "z3_note": result.get("z3_note", ""),
     }
 
 

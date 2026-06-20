@@ -24,24 +24,6 @@ def answer_logic_direct(
     premises_fol: list[str] | None = None,
     max_retries: int = 1,
 ) -> dict[str, str | list[int] | bool]:
-    """Answer a multiple-choice logic question with LLM reasoning + Z3 verification.
-
-    Pipeline:
-        1. Filter premises for relevance (if >5 premises)
-        2. Run LLM 3 times, take majority vote on answer
-        3. Verify with Z3 (entailment check, fall back to consistency)
-        4. If Z3 rejects, retry with feedback
-
-    Args:
-        premises: List of premise strings (natural language).
-        question: Natural language question.
-        choices: Multiple-choice answer options.
-        premises_fol: Optional FOL premises for Z3 verification.
-        max_retries: Number of retries for invalid JSON responses.
-
-    Returns:
-        dict with keys: answer, choice, reasoning, idx, z3_verified, z3_note.
-    """
     if not choices:
         return {
             "answer": "Unknown",
@@ -209,8 +191,6 @@ def _majority_vote(votes: list[dict], choices: list[str]) -> dict:
     for v in valid_votes:
         if v["answer"] == best_answer:
             return v
-
-    return valid_votes[0]
 
 
 def _retry_with_feedback(
